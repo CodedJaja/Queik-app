@@ -1,38 +1,61 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
+import { stripe } from "@/lib/stripe"
+import { NextResponse } from "next/server"
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const { amount, method, provider } = await request.json()
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-    // Mock integrations with payment providers
-    const providerConfigs = {
-      stripe: {
-        publishableKey: "pk_test_...",
-        endpoint: "https://checkout.stripe.com/pay",
-      },
-      flutterwave: {
-        publicKey: "FLWPUBK_TEST...",
-        endpoint: "https://ravemodal-v3.herokuapp.com/",
-      },
-      paystack: {
-        publicKey: "pk_test_...",
-        endpoint: "https://checkout.paystack.com/pay",
-      },
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // TODO: Generate payment session
-    // TODO: Store transaction in database
-    // TODO: Return payment URL for client redirect
+    const { amount, provider } = await request.json()
 
-    return NextResponse.json({
-      success: true,
-      sessionId: `session_${Date.now()}`,
-      paymentUrl: `https://mock-payment.example.com/pay?session=${Date.now()}`,
-      provider,
-      amount,
-      fee: amount * 0.029 + 0.3,
-    })
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to initiate deposit" }, { status: 500 })
+    if (provider === "stripe") {
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: "Wallet Deposit",
+                description: `Deposit to your Queik USD wallet`,
+              },
+              unit_amount: Math.round(amount * 100),
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        success_url: `${request.headers.get("origin")}/dashboard?deposit=success`,
+        cancel_url: `${request.headers.get("origin")}/dashboard/wallet/add-money?deposit=cancelled`,
+        metadata: {
+          user_id: user.id,
+          type: "deposit",
+        },
+      })
+
+      // Create a pending transaction in Supabase
+      await supabase.from("transactions").insert({
+        user_id: user.id,
+        type: "deposit",
+        amount: amount,
+        status: "pending",
+        description: "Stripe Wallet Deposit",
+        metadata: { stripe_session_id: session.id },
+      })
+
+      return NextResponse.json({ url: session.url })
+    }
+
+    // Handle other providers or mock
+    return NextResponse.json({ error: "Provider not implemented" }, { status: 400 })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || "Failed to initiate deposit" }, { status: 500 })
   }
 }

@@ -98,6 +98,8 @@ export class MarketDataManager {
   private cacheExpiry = 60000 // 1 minute
 
   constructor(provider?: MarketDataProvider) {
+    // In production, you would check for process.env.ALPHA_VANTAGE_API_KEY etc.
+    // and initialize a real provider. For now, we still provide a structured fallback.
     this.provider = provider || new MockMarketProvider()
   }
 

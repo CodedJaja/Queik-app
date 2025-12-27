@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { X, AlertCircle } from 'lucide-react'
+import { useState, useEffect } from "react"
+import { X, AlertCircle } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,18 +9,57 @@ import { Input } from "@/components/ui/input"
 interface BuySellModalProps {
   isOpen: boolean
   onClose: () => void
-  asset: any
   tradeType: "buy" | "sell"
+  assetId: string      // CoinGecko ID, e.g., 'bitcoin', 'ethereum'
+  assetSymbol: string  // Display symbol, e.g., 'BTC', 'ETH'
 }
 
-export default function BuySellModal({ isOpen, onClose, asset, tradeType }: BuySellModalProps) {
+export default function BuySellModal({
+  isOpen,
+  onClose,
+  tradeType,
+  assetId,
+  assetSymbol,
+}: BuySellModalProps) {
   const [amount, setAmount] = useState("")
   const [quantity, setQuantity] = useState("")
+  const [price, setPrice] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  // Fetch live price from CoinGecko
+  useEffect(() => {
+    async function fetchPrice() {
+      try {
+        setLoading(true)
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${assetId}&vs_currencies=usd`
+        )
+        const data = await res.json()
+        setPrice(data[assetId]?.usd ?? 0)
+      } catch (error) {
+        console.error("Error fetching price:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (isOpen) {
+      fetchPrice()
+      const interval = setInterval(fetchPrice, 10000) // refresh every 10s
+      return () => clearInterval(interval)
+    }
+  }, [isOpen, assetId])
+
+  // Update quantity automatically
+  useEffect(() => {
+    if (price && amount) {
+      setQuantity((parseFloat(amount) / price).toFixed(6))
+    } else {
+      setQuantity("")
+    }
+  }, [amount, price])
 
   if (!isOpen) return null
-
-  const total = parseFloat(amount) || 0
-  const qty = parseFloat(quantity) || 0
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -29,7 +68,7 @@ export default function BuySellModal({ isOpen, onClose, asset, tradeType }: BuyS
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-slate-900">
-              {tradeType === "buy" ? "Buy" : "Sell"} {asset.symbol}
+              {tradeType === "buy" ? "Buy" : "Sell"} {assetSymbol}
             </h2>
             <button
               onClick={onClose}
@@ -42,7 +81,9 @@ export default function BuySellModal({ isOpen, onClose, asset, tradeType }: BuyS
           {/* Current Price Info */}
           <div className="bg-slate-50 rounded-lg p-4 mb-6">
             <p className="text-sm text-slate-600 mb-1">Current Price</p>
-            <p className="text-2xl font-bold text-slate-900">${asset.price.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-slate-900">
+              {loading ? "Loading..." : `$${price.toFixed(2)}`}
+            </p>
           </div>
 
           {/* Amount Input */}
@@ -56,12 +97,7 @@ export default function BuySellModal({ isOpen, onClose, asset, tradeType }: BuyS
                 type="number"
                 placeholder="0.00"
                 value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value)
-                  if (e.target.value) {
-                    setQuantity((parseFloat(e.target.value) / asset.price).toFixed(4))
-                  }
-                }}
+                onChange={(e) => setAmount(e.target.value)}
                 className="pl-7 bg-white border-slate-200"
               />
             </div>
@@ -70,10 +106,10 @@ export default function BuySellModal({ isOpen, onClose, asset, tradeType }: BuyS
           {/* Quantity Display */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-slate-900 mb-2">
-              Quantity ({asset.symbol})
+              Quantity ({assetSymbol})
             </label>
             <div className="bg-slate-100 rounded-lg p-3">
-              <p className="font-semibold text-slate-900">{quantity || "0.0000"}</p>
+              <p className="font-semibold text-slate-900">{quantity || "0.000000"}</p>
             </div>
           </div>
 
@@ -88,11 +124,7 @@ export default function BuySellModal({ isOpen, onClose, asset, tradeType }: BuyS
 
           {/* Action Buttons */}
           <div className="flex gap-3">
-            <Button
-              onClick={onClose}
-              variant="outline"
-              className="flex-1 border-slate-200"
-            >
+            <Button onClick={onClose} variant="outline" className="flex-1 border-slate-200">
               Cancel
             </Button>
             <Button

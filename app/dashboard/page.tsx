@@ -6,61 +6,72 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { TrendingUp, Send, Plus, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, Globe, Lock } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts"
+import { createClient } from "@/lib/supabase/server"
+import { redirect } from "next/navigation"
 
-const chartData = [
-  { date: "Mon", balance: 5200, received: 1000 },
-  { date: "Tue", balance: 5400, received: 800 },
-  { date: "Wed", balance: 5100, received: 600 },
-  { date: "Thu", balance: 5600, received: 1200 },
-  { date: "Fri", balance: 5900, received: 900 },
-  { date: "Sat", balance: 5750, received: 500 },
-  { date: "Sun", balance: 5340, received: 400 },
-]
+export default async function DashboardPage() {
+  const supabase = await createClient()
 
-export default function DashboardPage() {
-  const [showBalance, setShowBalance] = useState(true)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/auth/login")
+  }
+
+  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+
+  const { data: wallet } = await supabase
+    .from("wallets")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("currency", "USD")
+    .single()
+
+  const { data: transactions } = await supabase
+    .from("transactions")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(5)
+
+  // Map database transactions to UI format
+  const recentTransactions =
+    transactions?.map((tx) => ({
+      id: tx.id,
+      type: tx.type,
+      description: tx.description,
+      amount: `${tx.type === "deposit" || tx.type === "transfer_received" ? "+" : "-"}$${tx.amount}`,
+      date: new Date(tx.created_at).toLocaleDateString(),
+      status: tx.status,
+    })) || []
+
+  // Mock chart data for now based on current date
+  const chartData = [
+    { date: "Mon", balance: (wallet?.balance || 0) * 0.9, received: 1000 },
+    { date: "Tue", balance: (wallet?.balance || 0) * 0.95, received: 800 },
+    { date: "Wed", balance: (wallet?.balance || 0) * 0.92, received: 600 },
+    { date: "Thu", balance: (wallet?.balance || 0) * 0.98, received: 1200 },
+    { date: "Fri", balance: (wallet?.balance || 0) * 1.05, received: 900 },
+    { date: "Sat", balance: (wallet?.balance || 0) * 1.02, received: 500 },
+    { date: "Sun", balance: wallet?.balance || 0, received: 400 },
+  ]
 
   const stats = [
-    { label: "USD Balance", value: "$5,342.50", change: "+$234.50", positive: true, icon: "💰" },
+    {
+      label: "USD Balance",
+      value: new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(wallet?.balance || 0),
+      change: "+$234.50",
+      positive: true,
+      icon: "💰",
+    },
     { label: "Received This Month", value: "$8,500", change: "+12 transactions", positive: true, icon: "📥" },
     { label: "Sent This Month", value: "$3,200", change: "-8 transactions", positive: true, icon: "📤" },
     { label: "Pending Transfers", value: "2", change: "Awaiting confirmation", positive: false, icon: "⏳" },
   ]
 
-  const recentTransactions = [
-    {
-      id: "1",
-      type: "received",
-      description: "Received from John Doe",
-      amount: "+$500",
-      date: "Today at 2:30 PM",
-      status: "completed",
-    },
-    {
-      id: "2",
-      type: "sent",
-      description: "Sent to Sarah Smith - NGN Account",
-      amount: "-$200",
-      date: "Yesterday at 10:15 AM",
-      status: "completed",
-    },
-    {
-      id: "3",
-      type: "converted",
-      description: "USD to NGN Conversion",
-      amount: "-$1,000",
-      date: "2 days ago",
-      status: "completed",
-    },
-    {
-      id: "4",
-      type: "withdrawal",
-      description: "Withdrawal to First Bank NGN",
-      amount: "-$1,500",
-      date: "3 days ago",
-      status: "pending",
-    },
-  ]
+  const [showBalance, setShowBalance] = useState(true)
 
   return (
     <div className="space-y-6 font-sans">
@@ -79,7 +90,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-emerald-100 text-sm mb-2">Total USD Balance</p>
-                    <h2 className="text-4xl font-bold tracking-tight">{showBalance ? "$5,342.50" : "••••••"}</h2>
+                    <h2 className="text-4xl font-bold tracking-tight">{showBalance ? stats[0].value : "••••••"}</h2>
                   </div>
                   <button
                     onClick={() => setShowBalance(!showBalance)}

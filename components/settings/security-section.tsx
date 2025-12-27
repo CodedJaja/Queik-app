@@ -3,9 +3,11 @@
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Lock, Smartphone, Eye, EyeOff, LogOut } from 'lucide-react'
+import { Lock, Smartphone, Eye, EyeOff, LogOut, ShieldCheck } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 export default function SecuritySection() {
+  const supabase = createClient()
   const [showPassword, setShowPassword] = useState(false)
   const [twoFAEnabled, setTwoFAEnabled] = useState(false)
   const [biometricEnabled, setBiometricEnabled] = useState(false)
@@ -13,6 +15,8 @@ export default function SecuritySection() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [mfaEnrollment, setMfaEnrollment] = useState<{ id: string; qrCode: string; secret: string } | null>(null)
+  const [mfaCode, setMfaCode] = useState("")
 
   const handleChangePassword = async () => {
     if (newPassword !== confirmPassword) {
@@ -24,7 +28,7 @@ export default function SecuritySection() {
       const response = await fetch("/api/security/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword })
+        body: JSON.stringify({ currentPassword, newPassword }),
       })
       if (response.ok) {
         alert("Password changed successfully")
@@ -39,18 +43,56 @@ export default function SecuritySection() {
     }
   }
 
-  const handleToggle2FA = async () => {
+  const startMfaEnrollment = async () => {
     try {
-      const response = await fetch("/api/security/2fa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !twoFAEnabled })
+      const { data, error } = await supabase.auth.mfa.enroll({
+        factorType: "totp",
+        issuer: "Queik",
+        friendlyName: "Authenticator App",
       })
-      if (response.ok) {
-        setTwoFAEnabled(!twoFAEnabled)
-      }
-    } catch (error) {
-      console.error("[v0] Error toggling 2FA:", error)
+      if (error) throw error
+      setMfaEnrollment({
+        id: data.id,
+        qrCode: data.totp.qr_code,
+        secret: data.totp.secret,
+      })
+    } catch (error: any) {
+      console.error("[v0] MFA Enrollment Error:", error.message)
+    }
+  }
+
+  const verifyMfaEnrollment = async () => {
+    if (!mfaEnrollment) return
+    setIsSaving(true)
+    try {
+      const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
+        factorId: mfaEnrollment.id,
+      })
+      if (challengeError) throw challengeError
+
+      const { error: verifyError } = await supabase.auth.mfa.verify({
+        factorId: mfaEnrollment.id,
+        challengeId: challengeData.id,
+        code: mfaCode,
+      })
+      if (verifyError) throw verifyError
+
+      setTwoFAEnabled(true)
+      setMfaEnrollment(null)
+      setMfaCode("")
+      alert("MFA successfully enabled!")
+    } catch (error: any) {
+      alert(error.message || "Invalid verification code")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleToggle2FA = async () => {
+    if (!twoFAEnabled) {
+      await startMfaEnrollment()
+    } else {
+      alert("Please contact support to disable MFA for your protection.")
     }
   }
 
@@ -85,11 +127,12 @@ export default function SecuritySection() {
                 placeholder="Enter new password"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <button
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-2.5"
-              >
-                {showPassword ? <EyeOff className="w-5 h-5 text-slate-400" /> : <Eye className="w-5 h-5 text-slate-400" />}
+              <button onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-2.5">
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5 text-slate-400" />
+                ) : (
+                  <Eye className="w-5 h-5 text-slate-400" />
+                )}
               </button>
             </div>
           </div>
@@ -138,11 +181,54 @@ export default function SecuritySection() {
                   : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
               }`}
             >
-              {twoFAEnabled ? "Disable" : "Enable"}
+              {twoFAEnabled ? "Active" : "Enable"}
             </button>
           </div>
+
+          {mfaEnrollment && (
+            <div className="p-6 border border-emerald-200 bg-emerald-50 rounded-xl space-y-6 animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="text-center">
+                <h3 className="text-lg font-bold text-slate-900 mb-2">Set up Authenticator App</h3>
+                <p className="text-sm text-slate-600">Scan the QR code below with your authenticator app</p>
+              </div>
+
+              <div className="flex justify-center bg-white p-4 rounded-xl shadow-sm w-fit mx-auto border border-slate-100">
+                <img src={mfaEnrollment.qrCode || "/placeholder.svg"} alt="MFA QR Code" className="w-48 h-48" />
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2 text-center">
+                    Enter the 6-digit code from your app
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+                    className="w-full text-center text-2xl tracking-[0.5em] font-mono px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="000000"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <Button variant="outline" onClick={() => setMfaEnrollment(null)} className="flex-1 border-slate-200">
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={verifyMfaEnrollment}
+                    disabled={mfaCode.length !== 6 || isSaving}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    {isSaving ? "Verifying..." : "Verify & Enable"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {twoFAEnabled && (
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-900 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
               2FA is currently enabled. Your account is protected.
             </div>
           )}
@@ -187,9 +273,12 @@ export default function SecuritySection() {
             {[
               { device: "Chrome on macOS", location: "San Francisco, CA", time: "2 hours ago" },
               { device: "Safari on iPhone", location: "San Francisco, CA", time: "1 day ago" },
-              { device: "Chrome on Windows", location: "New York, NY", time: "3 days ago" }
+              { device: "Chrome on Windows", location: "New York, NY", time: "3 days ago" },
             ].map((login, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <div
+                key={idx}
+                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+              >
                 <div>
                   <p className="font-medium text-slate-900">{login.device}</p>
                   <p className="text-sm text-slate-600">{login.location}</p>
@@ -198,10 +287,7 @@ export default function SecuritySection() {
               </div>
             ))}
           </div>
-          <Button
-            variant="outline"
-            className="w-full mt-4 border-red-200 text-red-600 hover:bg-red-50"
-          >
+          <Button variant="outline" className="w-full mt-4 border-red-200 text-red-600 hover:bg-red-50 bg-transparent">
             <LogOut className="w-4 h-4 mr-2" />
             Terminate All Sessions
           </Button>

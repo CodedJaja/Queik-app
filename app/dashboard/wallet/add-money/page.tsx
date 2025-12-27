@@ -39,7 +39,17 @@ export default function AddMoneyPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount, method, provider: selectedProvider }),
       })
-      // TODO: Redirect to payment provider
+
+      const data = await response.json()
+
+      if (data.url) {
+        window.location.href = data.url
+      } else if (data.error) {
+        alert(data.error)
+      }
+    } catch (error) {
+      console.error("[v0] Deposit error:", error)
+      alert("Failed to initiate deposit. Please try again.")
     } finally {
       setLoading(false)
     }

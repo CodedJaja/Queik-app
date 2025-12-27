@@ -1,5 +1,17 @@
+import { createClient } from "@/lib/supabase/server"
+import { NextResponse } from "next/server"
+
 export async function GET(request: Request) {
   try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const query = searchParams.get("q")?.toLowerCase() || ""
 
@@ -19,11 +31,11 @@ export async function GET(request: Request) {
       (asset) => asset.symbol.toLowerCase().includes(query) || asset.name.toLowerCase().includes(query),
     )
 
-    return Response.json({
+    return NextResponse.json({
       success: true,
       results: results.slice(0, 10),
     })
   } catch (error) {
-    return Response.json({ success: false, error: "Search failed" }, { status: 500 })
+    return NextResponse.json({ success: false, error: "Search failed" }, { status: 500 })
   }
 }

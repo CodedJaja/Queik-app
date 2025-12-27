@@ -1,19 +1,39 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
+import { NextResponse } from "next/server"
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // TODO: Get user from session
-    // TODO: Fetch wallet from database
+    const supabase = await createClient()
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { data: wallet, error } = await supabase
+      .from("wallets")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("currency", "USD")
+      .single()
+
+    if (error) {
+      // If wallet doesn't exist yet, it will be handled by the trigger or first visit
+      return NextResponse.json({ error: "Wallet not found" }, { status: 404 })
+    }
 
     return NextResponse.json({
-      walletId: "wallet_" + Math.random().toString(36).substr(2, 9),
-      balance: 5342.5,
-      currency: "USD",
-      accountNumber: "1234567890",
-      routingNumber: "021000021",
-      swiftCode: "CHASUS33",
-      bankName: "Chase Bank",
-      createdAt: new Date().toISOString(),
+      walletId: wallet.id,
+      balance: wallet.balance,
+      currency: wallet.currency,
+      accountNumber: wallet.account_number,
+      routing_number: wallet.routing_number,
+      swiftCode: wallet.swift_code,
+      bankName: wallet.bank_name,
+      createdAt: wallet.created_at,
     })
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch wallet" }, { status: 500 })

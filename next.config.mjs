@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Enable React Compiler for better performance
-  reactCompiler: true,
+  // Disable React Compiler as the required babel-plugin-react-compiler package is missing
+  reactCompiler: false,
   
   // Image optimization
   images: {
@@ -14,7 +14,7 @@ const nextConfig = {
 
   // Performance optimizations
   compress: true,
-  swcMinify: true,
+  // Removed swcMinify as it is now the default and generates warnings in Next.js 16
   productionBrowserSourceMaps: false,
 
   // Security headers
